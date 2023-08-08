@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pyhton Map</title>
+  </head>
+  <body>
+    <h1>Python Climate Info Map</h1>
+    <!-- <div class="container">
+      <img src="{{image_data}}" alt="GeoPandas Plot" />
+    </div> -->
+    <div id="svg-map"></div>
+
+    <script>
+      const svgMapContainer = document.getElementById("svg-map");
+
+      async function getInfo() {
+        const res = await fetch("/plot.svg");
+        const data = await res.text();
+        svgMapContainer.innerHTML = data;
+      }
+      getInfo();
+    </script>
+  </body>
+</html>
+
+<style>
+  body {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    text-align: center;
+  }
+
+  h1 {
+    margin: 0;
+  }
+
+  img {
+    height: 800px;
+  }
+</style>
