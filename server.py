@@ -2,12 +2,11 @@ import http.server
 import socketserver
 import geopandas as gpd
 import matplotlib.pyplot as plt
-from io import StringIO
 import requests
 import json
 
 
-PORT = 8088
+PORT = 8080
 
 # 使用 geopandas 載入 GeoJSON 資料
 gdf = gpd.read_file("taiwan.json")
@@ -18,9 +17,8 @@ gdf.plot(ax=ax)
 # 關閉座標軸
 ax.axis('off')
 
-tempDataList = {};
 
-# ---- 取得氣候資料 ----
+# ---- 取得氣溫資料 ----
 response = requests.get('https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=CWB-0AFFC5D1-340B-437D-8E6E-BFEACCCBB52B')
 
 if response.status_code == 200:
@@ -28,33 +26,108 @@ if response.status_code == 200:
     data = response.json()
     
     if 'records' in data:
-        # climate_data = {
-        #     record['CITY']: record['climate_value'] for record in data['records']['location']
-        # }
+
+        tempList = {}
+        dtxList = {}
+        dtnList = {}
+
+        # 取得溫度資料並寫入 gdf 中
         for station in data['records']['location']:
-            tempDataList[station['parameter'][0]['parameterValue']] = station['weatherElement'][3]['elementValue']
-        print(tempDataList)
-        gdf['temp'] = gdf.NAME_2014.map(tempDataList)
-        print(gdf.temp)
+            key = station['parameter'][0]['parameterValue']
+            temp = station['weatherElement'][3]['elementValue']
+            dtx = station['weatherElement'][10]['elementValue']
+            dtn = station['weatherElement'][12]['elementValue']
 
-        # 使用 matplotlib 套件中提供的漸層顏色
-        cmap = plt.cm.get_cmap('viridis')
+            # 先確認均溫為正常數字
+            if temp != '-99':
+                # 如果 tempList 中沒有該縣市的資料
+                if key not in tempList:
+                    tempList[key] = temp
+                else:
+                    tempList[key] = round((float(tempList[key]) + float(temp)) / 2, 2)
 
-        # 透過資料給地圖上色
-        gdf.plot(column='temp', cmap=cmap, linewidth=0.8, ax=ax, edgecolor='0.8', legend=True)
+            # 先確認最高溫為正常數字
+            if dtx != '-99':
+                # 如果 dtxList 中沒有該縣市的資料
+                if key not in dtxList:
+                    dtxList[key] = dtx
+                else:
+                    dtxList[key] = round((float(dtxList[key]) + float(dtx)) / 2, 2)
+
+            if dtn != '-99':
+                # 如果 dtnList 中沒有該縣市的資料
+                if key not in dtnList:
+                    dtnList[key] = dtn
+                else:
+                    dtnList[key] = round((float(dtnList[key]) + float(dtn)) / 2, 2)
+
+        gdf['temp'] = gdf.NAME_2014.map(tempList)
+        gdf['D_TX'] = gdf.NAME_2014.map(dtxList)
+        gdf['D_TN'] = gdf.NAME_2014.map(dtnList)
 else:
     error_message = {'error': 'Failed to fetch data from external API'}
     print(error_message)
-# ---- 取得氣候資料 ----
+# ---- 取得氣溫資料 ----
 
-# 將資料保存成 SVG 字串
-buffer = StringIO()
-plt.savefig(buffer, format='svg', bbox_inches='tight')
-svg_data = buffer.getvalue()
-buffer.close()
 
-plt.close()
 
+# ---- 取得紫外線資料 ----
+# 取得觀測站資料（靜態）
+# 讀取本地 JSON 檔案
+with open('stations.json', 'r') as file:
+    stationData = json.load(file)
+
+# 站點資料
+# stationList = stationData.cwbdata.resources.resource.data.stationsStatus.station
+stationList = stationData['cwbdata']['resources']['resource']['data']['stationsStatus']['station']
+
+# 紫外線資料
+res = requests.get('https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0005-001?Authorization=CWB-0AFFC5D1-340B-437D-8E6E-BFEACCCBB52B')
+
+if res.status_code == 200:
+    uviResData = res.json()
+
+    if 'records' in uviResData:
+        
+        uviList = uviResData['records']['weatherElement']['location']
+
+        uviData = {}
+
+        for location in uviList:
+            for station in stationList:
+                if location['locationCode'] == station['StationID']:
+                    county = station['CountyName']
+                    if county not in uviData:
+                        uviData[county] = location['value']
+                    else:
+                        uviData[county] = round((float(uviData[county]) + float(location['value'])) / 2, 2)
+
+        gdf['uvi'] = gdf.NAME_2014.map(uviData)
+else:
+    error_message = {'error': 'Failed to fetch data from external API'}
+# ---- 取得紫外線資料 ----
+
+
+# ---- 取得降雨資料 ----
+rainfallRes = requests.get('https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0002-001?Authorization=CWB-0AFFC5D1-340B-437D-8E6E-BFEACCCBB52B&limit=100&parameterName=CITY')
+
+if rainfallRes.status_code == 200:
+    rainfallResData = rainfallRes.json()
+
+    if 'records' in rainfallResData:
+        rainfallInfo = rainfallResData['records']['location']
+# ---- 取得降雨資料 ----
+
+# ---- 取得站點資料 ----
+stationRes = requests.get('https://opendata.cwb.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization=CWB-0AFFC5D1-340B-437D-8E6E-BFEACCCBB52B')
+
+if stationRes.status_code == 200:
+    stationData = stationRes.json()
+
+    if 'records' in rainfallResData:
+        stations = stationData['records']['location']
+
+# ---- 取得站點資料 ----
 
 # 建立 http 
 class MyHandler(http.server.SimpleHTTPRequestHandler):
@@ -70,13 +143,29 @@ class MyHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(html_content)
 
             return
-        elif self.path == '/plot.svg':  # 新增 SVG 路徑
+        elif self.path == '/taiwan.geojson':
             self.send_response(200)
-            self.send_header('Content-type', 'image/svg+xml')  # 設置 Content-type 為 SVG 格式
+            self.send_header('Content-type', 'application/geo+json')
             self.end_headers()
 
-            # 直接將 SVG 字串寫入伺服器輸出流
-            self.wfile.write(svg_data.encode('utf-8'))
+            # 將 gdf(geoDataFrame) 資料轉成字串後用 UTF-8 編碼傳送
+            self.wfile.write(gdf.to_json().encode('utf-8'))
+            return
+        elif self.path == '/rainfall.info':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            # 將 rainfallInfo 資料轉成字串後用 UTF-8 編碼傳送
+            self.wfile.write(json.dumps(rainfallInfo).encode('utf-8'))
+            return
+        elif self.path == '/stations.info':
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+
+            # 將 rainfallInfo 資料轉成字串後用 UTF-8 編碼傳送
+            self.wfile.write(json.dumps(stations).encode('utf-8'))
             return
 
 # 使用 SimpleHTTPRequestHandler 創建伺服器
